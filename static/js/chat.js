@@ -1,5 +1,6 @@
 let currentSessionId = null;
 let currentAbortController = null; // 用於「中止回應」
+let pendingImageFile = null; // 待上傳的圖片
 
 // DOM Elements
 const sessionListEl = document.getElementById('session-list');
@@ -9,12 +10,52 @@ const chatInputEl = document.getElementById('chat-input');
 const btnSendEl = document.getElementById('btn-send');
 const btnNewChatEl = document.getElementById('btn-new-chat');
 
+// Upload DOM
+const fileInputEl = document.getElementById('file-input');
+const btnUploadEl = document.getElementById('btn-upload');
+const imagePreviewAreaEl = document.getElementById('image-preview-area');
+const imagePreviewEl = document.getElementById('image-preview');
+const btnRemoveImageEl = document.getElementById('btn-remove-image');
+
 // Memory DOM
 const btnMemoryEl = document.getElementById('btn-memory');
 const memoryModalEl = document.getElementById('memory-modal');
 const memoryTextEl = document.getElementById('memory-text');
 const btnSaveMemoryEl = document.getElementById('btn-save-memory');
 const btnCloseMemoryEl = document.getElementById('btn-close-memory');
+
+/* --- 圖片上傳 (Upload) --- */
+btnUploadEl.addEventListener('click', () => {
+    fileInputEl.click();
+});
+
+fileInputEl.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    pendingImageFile = file;
+    
+    // 顯示圖片預覽
+    if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            imagePreviewEl.src = ev.target.result;
+            imagePreviewAreaEl.classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
+    } else {
+        // 非圖片檔案，用文字預覽
+        imagePreviewEl.src = '';
+        imagePreviewEl.alt = `📄 ${file.name}`;
+        imagePreviewAreaEl.classList.remove('hidden');
+    }
+});
+
+btnRemoveImageEl.addEventListener('click', () => {
+    pendingImageFile = null;
+    fileInputEl.value = '';
+    imagePreviewAreaEl.classList.add('hidden');
+    imagePreviewEl.src = '';
+});
 
 /* --- 記憶機制 (Memory) --- */
 btnMemoryEl.addEventListener('click', async () => {
@@ -107,11 +148,11 @@ async function selectSession(sessionId) {
         
         chatMessagesEl.innerHTML = '';
         if (messages.length === 0) {
-            chatMessagesEl.innerHTML = '<div class="msg system">這是新的對話。您可以輸入「幫我抽一張牌」來觸發工具。</div>';
+            chatMessagesEl.innerHTML = '<div class="msg system">這是新的對話。您可以輸入「幫我抽一張牌」來觸發工具，或上傳手掌照片進行手相分析 🖐️</div>';
         } else {
             messages.forEach((msg, idx) => {
                 const isLastAssistant = (msg.role === 'assistant' && idx === messages.length - 1);
-                appendMessage(msg.role, msg.content, isLastAssistant);
+                appendMessage(msg.role, msg.content, isLastAssistant, msg.image_path);
             });
         }
         scrollToBottom();
@@ -121,7 +162,6 @@ async function selectSession(sessionId) {
 /* --- 發送與回答控制 (Abort) --- */
 btnSendEl.addEventListener('click', () => {
     if (currentAbortController) {
-        // 如果正在等待回應，此按鈕為「中止」功能
         currentAbortController.abort();
         resetSendButton();
         appendMessage('system', '⏹️ 已中止回應');
@@ -147,11 +187,16 @@ function resetSendButton() {
 async function sendMessage() {
     if (!currentSessionId) return alert('請先選擇或建立一個對話！');
     const text = chatInputEl.value.trim();
-    if (!text) return;
+    if (!text && !pendingImageFile) return;
     
-    // UI 先顯示使用者訊息
-    appendMessage('user', text);
+    // UI 先顯示使用者訊息（含圖片預覽）
+    const previewSrc = pendingImageFile && pendingImageFile.type.startsWith('image/') ? imagePreviewEl.src : null;
+    appendMessage('user', text || '(已上傳圖片)', false, previewSrc);
     chatInputEl.value = '';
+    
+    // 清除圖片預覽
+    imagePreviewAreaEl.classList.add('hidden');
+    imagePreviewEl.src = '';
     scrollToBottom();
     
     // 設定 AbortController
@@ -159,14 +204,29 @@ async function sendMessage() {
     setSendButtonAbortMode();
     
     try {
-        const res = await fetch(`/api/chat/sessions/${currentSessionId}/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: text }),
-            signal: currentAbortController.signal
-        });
+        let res;
+        if (pendingImageFile) {
+            // 使用 FormData 上傳圖片
+            const formData = new FormData();
+            formData.append('content', text);
+            formData.append('image', pendingImageFile);
+            res = await fetch(`/api/chat/sessions/${currentSessionId}/messages`, {
+                method: 'POST',
+                body: formData,
+                signal: currentAbortController.signal
+            });
+        } else {
+            // 純文字
+            res = await fetch(`/api/chat/sessions/${currentSessionId}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: text }),
+                signal: currentAbortController.signal
+            });
+        }
         
-        const data = await res.json();
+        pendingImageFile = null;
+        fileInputEl.value = '';
         
         // 重新載入這個 Session 的所有訊息以確保包含 Tool Message
         selectSession(currentSessionId); 
@@ -179,6 +239,8 @@ async function sendMessage() {
             appendMessage('system', '發送失敗，請稍後再試。');
         }
     } finally {
+        pendingImageFile = null;
+        fileInputEl.value = '';
         resetSendButton();
     }
 }
@@ -187,11 +249,9 @@ async function sendMessage() {
 async function regenerateLastResponse() {
     if (!currentSessionId) return;
     
-    // 設定 AbortController (雖然不一定會取消成功，但維持介面一致)
     currentAbortController = new AbortController();
     setSendButtonAbortMode();
     
-    // 在畫面上暫時顯示正在重新生成
     appendMessage('system', '🔄 正在重新生成回覆...');
     scrollToBottom();
 
@@ -200,7 +260,6 @@ async function regenerateLastResponse() {
             method: 'POST',
             signal: currentAbortController.signal
         });
-        // 重新載入 Session
         selectSession(currentSessionId);
     } catch (e) {
         if (e.name !== 'AbortError') console.error('Failed to regenerate', e);
@@ -210,7 +269,7 @@ async function regenerateLastResponse() {
 }
 
 /* --- UI 渲染 --- */
-function appendMessage(role, content, isLastAssistant = false) {
+function appendMessage(role, content, isLastAssistant = false, imagePath = null) {
     if (role === 'system' || role === 'tool') {
         const div = document.createElement('div');
         div.className = `msg ${role}`;
@@ -225,11 +284,26 @@ function appendMessage(role, content, isLastAssistant = false) {
     const msgDiv = document.createElement('div');
     msgDiv.className = `msg ${role}`;
     
-    // 支援 Markdown 解析
-    if (role === 'assistant' && typeof marked !== 'undefined') {
-        msgDiv.innerHTML = marked.parse(content);
-    } else {
-        msgDiv.textContent = content;
+    // 如果有圖片，先渲染圖片
+    if (imagePath) {
+        const imgEl = document.createElement('img');
+        imgEl.className = 'msg-image';
+        // 如果是 base64 data URL（即時預覽）或是伺服器路徑
+        imgEl.src = imagePath.startsWith('data:') ? imagePath : `/${imagePath}`;
+        imgEl.alt = '上傳的圖片';
+        imgEl.onclick = () => window.open(imgEl.src, '_blank');
+        msgDiv.appendChild(imgEl);
+    }
+    
+    // 渲染文字內容
+    if (content) {
+        const textDiv = document.createElement('div');
+        if (role === 'assistant' && typeof marked !== 'undefined') {
+            textDiv.innerHTML = marked.parse(content);
+        } else {
+            textDiv.textContent = content;
+        }
+        msgDiv.appendChild(textDiv);
     }
     
     container.appendChild(msgDiv);

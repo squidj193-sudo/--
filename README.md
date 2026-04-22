@@ -25,9 +25,16 @@
 | `prd/`          | `/prd`          | 產出 `docs/PRD.md`                                                           |
 | `architecture/` | `/architecture` | 產出 `docs/ARCHITECTURE.md`                                                  |
 | `models/`       | `/models`       | 產出 `docs/MODELS.md`                                                        |
-| `implement/`    | `/implement`    | 產出程式碼（**需指定**：HTML 前端 + FastAPI + SQLite 後端）              |
+| `implement/`    | `/implement`    | 產出程式碼（**需指定**：HTML 前端 + Flask + SQLite 後端）                     |
 | `test/`         | `/test`         | 產出手動測試清單                                                               |
 | `commit/`       | `/commit`       | 自動 commit + push（**需指定**：使用者與 email 使用 Antigravity 預設值） |
+
+#### 額外自訂 Skill
+
+| 資料夾名稱                 | 對應指令          | 說明                                                                 |
+| -------------------------- | ----------------- | -------------------------------------------------------------------- |
+| `others/myskill1/`        | `/record_draws`  | 塔羅抽卡紀錄管理員：分析資料庫中的歷史抽牌紀錄，產出統計與洞察報告 |
+| `others/myskill2/`        | `/palm_reading`  | 手相視覺分析師：利用 Gemini Vision 分析手掌照片，解讀掌紋特徵並提供運勢建議 |
 
 ### 2. 開發文件（`docs/`）
 
@@ -41,30 +48,40 @@
 
 一個可執行的 AI 聊天機器人，需支援以下功能：
 
-| 功能           | 說明                                       | 是否完成 |
-| -------------- | ------------------------------------------ | -------- |
-| 對話狀態管理   | 支援多聊天室（session），維持上下文        | O/X      |
-| 訊息系統       | 訊息結構包含 role、content、timestamp      |          |
-| 對話歷史管理   | 可顯示並切換過去的對話紀錄                 |          |
-| 上傳圖片或文件 | 支援使用者上傳檔案作為對話內容             |          |
-| 回答控制       | 提供重新生成（regenerate）或中止回應的功能 |          |
-| 記憶機制       | 儲存使用者偏好，實現跨對話持續性           |          |
-| 工具整合       | 串接外部 API，使聊天機器人具備實際操作能力 |          |
+| 功能           | 說明                                                | 是否完成 |
+| -------------- | --------------------------------------------------- | -------- |
+| 對話狀態管理   | 使用 SQLite 支援多聊天室（session），維持上下文     | ✅       |
+| 訊息系統       | 訊息結構包含 role、content、image_path、timestamp   | ✅       |
+| 對話歷史管理   | 側邊欄顯示歷史紀錄，可建立、切換與刪除對話         | ✅       |
+| 上傳圖片或文件 | 📎 上傳圖片後預覽，傳送給 Gemini 視覺分析（手相等）| ✅       |
+| 回答控制       | 支援重新生成（🔄）與中止回應（⏹️ AbortController） | ✅       |
+| 記憶機制       | 🧠 全域偏好設定，跨對話注入 system_instruction      | ✅       |
+| 工具整合       | 關鍵字觸發 draw_tarot_card() 自動抽牌並由 AI 解讀  | ✅       |
+
+#### 功能說明
+
+- **對話狀態管理**：使用 Flask-SQLAlchemy 搭配 SQLite，透過 `ChatSession` 與 `ChatMessage` 模型實現多聊天室與訊息持久化。
+- **訊息系統**：每則訊息皆包含 `role`（user / assistant / system / tool）、`content`、`image_path`、`created_at` 等欄位。
+- **對話歷史管理**：左側面板顯示所有歷史對話紀錄，支援建立、切換與刪除。
+- **上傳圖片或文件**：點擊 📎 按鈕可上傳圖片（png/jpg/gif/webp）或文件（pdf/txt），圖片會在輸入框上方預覽，送出後會顯示在對話氣泡中，並傳送給 Gemini 進行視覺分析。
+- **🖐️ 手相分析**：上傳手掌照片後，AI 會自動偵測意圖並啟動手相分析工具，利用 Gemini 的視覺能力解讀生命線、智慧線、感情線等掌紋特徵，提供完整的手相報告。
+- **回答控制**：送出訊息後按鈕自動切換為「⏹️ 中止」模式（使用 AbortController）；AI 回覆下方提供「🔄 重新生成」按鈕。
+- **記憶機制**：透過「🧠 記憶設定」Modal 設定個人偏好，儲存於 `UserPreference` 模型中，所有對話共享。記憶內容會被注入 Gemini 的 `system_instruction`。
+- **工具整合**：實作規則引擎偵測使用者意圖（關鍵字：「抽牌」），自動呼叫 `draw_tarot_card()` 內部工具進行隨機抽牌，並將結果交由 Gemini 進行解讀。
 
 ### 4. 系統截圖（`screenshots/`）
 
 在 `screenshots/` 資料夾放入以下截圖：
 
 - `chat.png`：聊天機器人主畫面，**需包含至少一輪完整的對話**
+![alt text](image.png)
+
 - `history.png`：對話歷史或多 session 切換的畫面
-
-### 5. 心得報告（本 README.md 下方）
-
-在本 README 的**心得報告**區填寫。
+![alt text](image-1.png)
 
 ---
 
-## 專案結構範例
+## 專案結構
 
 ```
 your-repo/
@@ -75,22 +92,48 @@ your-repo/
 │       ├── models/SKILL.md
 │       ├── implement/SKILL.md
 │       ├── test/SKILL.md
-│       └── commit/SKILL.md
+│       ├── commit/SKILL.md
+│       └── others/
+│           ├── myskill1/SKILL.md      ← 自訂技能：抽卡紀錄管理員
+│           └── myskill2/SKILL.md      ← 自訂技能：手相視覺分析師
 ├── docs/
 │   ├── PRD.md
 │   ├── ARCHITECTURE.md
 │   └── MODELS.md
 ├── templates/
-│   └── index.html
+│   └── index.html                     ← 前端頁面（含聊天 UI 與記憶設定 Modal）
+├── static/
+│   ├── css/
+│   │   └── style.css                  ← 暗色主題 UI 樣式
+│   └── js/
+│       ├── app.js                     ← 塔羅抽籤邏輯
+│       └── chat.js                    ← 聊天室前端邏輯（含 Abort / Regenerate / Memory）
+├── data/
+│   └── tarot.json                     ← 塔羅牌資料集
+├── tests/
+│   └── test_app.py                    ← 自動化測試
 ├── screenshots/
 │   ├── chat.png
-│   ├── history.png
-│   └── skill.png
-├── app.py
+│   └── history.png
+├── app.py                             ← Flask 後端（含 Gemini 串接、Tool Use、Memory API）
 ├── requirements.txt
-├── .env.example
-└── README.md          ← 本檔案（含心得報告）
+├── .env.example                       ← 環境變數範本
+├── .gitignore
+└── README.md                          ← 本檔案（含心得報告）
 ```
+
+---
+
+## 技術棧
+
+| 類別     | 技術                                           |
+| -------- | ---------------------------------------------- |
+| 後端框架 | Flask + Flask-SQLAlchemy                       |
+| 資料庫   | SQLite（透過 SQLAlchemy ORM）                  |
+| AI 模型  | Google Gemini 2.5 Flash（`google-generativeai`）|
+| 前端     | HTML + Vanilla CSS + JavaScript                |
+| Markdown | marked.js（AI 回覆的 Markdown 渲染）          |
+| 測試     | pytest                                         |
 
 ---
 
@@ -98,36 +141,39 @@ your-repo/
 
 ```bash
 # 1. 建立虛擬環境
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv
+.venv\Scripts\activate        # macOS/Linux: source .venv/bin/activate
 
 # 2. 安裝套件
 pip install -r requirements.txt
 
 # 3. 設定環境變數
-cp .env.example .env
-# 編輯 .env，填入 GEMINI_API_KEY
+copy .env.example .env        # macOS/Linux: cp .env.example .env
+# 編輯 .env，填入你的 GEMINI_API_KEY
 
 # 4. 啟動伺服器
-uvicorn app:app --reload
-# 開啟瀏覽器：http://localhost:8000
+python app.py
+# 開啟瀏覽器：http://localhost:5000
 ```
+
+> **注意**：若未設定 `GEMINI_API_KEY`，系統會自動退回「模擬回覆」模式，仍可正常使用所有 UI 功能。
 
 ---
 
 ## 心得報告
 
-**姓名**：
-**學號**：
+**姓名**：江庭翔
+**學號**：D1188863
 
 ### 問題與反思
 
 **Q1. 你設計的哪一個 Skill 效果最好？為什麼？哪一個效果最差？你認為原因是什麼？**
-
-> （在此填寫）
+ 
+> 我覺得效果最好的是myskill2因為他可以利用gemini的視覺能力分析手掌照片，是我原本沒有想到的
+> 我覺得效果最差的是myskill1，因為它害我出現bug
 
 ---
 
 **Q2. 在用 AI 產生程式碼的過程中，你遇到什麼問題是 AI 沒辦法自己解決、需要你介入處理的？**
 
-> （在此填寫）
+> api餘額不足

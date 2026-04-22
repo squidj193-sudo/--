@@ -44,10 +44,16 @@
                 <!-- 對話區 (Messages) -->
                 <div class="chat-box hidden" id="chat-box">
                     <div class="messages" id="chat-messages">
-                        <div class="msg system">歡迎！請選擇左側紀錄，或開啟新對話。您可以輸入「抽一張牌」來觸發工具。</div>
+                        <div class="msg system">歡迎！請選擇左側紀錄，或開啟新對話。您可以輸入「抽一張牌」來觸發工具，或上傳手掌照片進行手相分析 🖐️</div>
+                    </div>
+                    <div id="image-preview-area" class="image-preview-area hidden">
+                        <img id="image-preview" src="" alt="預覽">
+                        <button id="btn-remove-image" class="btn-remove-image">✕</button>
                     </div>
                     <div class="chat-input-area">
-                        <input type="text" id="chat-input" placeholder="詢問關於牌義的詳細解讀...">
+                        <input type="file" id="file-input" accept="image/*,.pdf,.txt" hidden>
+                        <button id="btn-upload" class="btn-small" title="上傳圖片或文件">📎</button>
+                        <input type="text" id="chat-input" placeholder="詢問牌義解讀，或上傳手掌照片分析手相...">
                         <button id="btn-send" class="btn-small">送出</button>
                     </div>
                 </div>

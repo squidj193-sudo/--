@@ -8,6 +8,8 @@ import os
 import uuid
 import random
 import time
+from werkzeug.utils import secure_filename
+import base64
 
 load_dotenv()
 if os.environ.get("GEMINI_API_KEY"):
@@ -16,6 +18,9 @@ if os.environ.get("GEMINI_API_KEY"):
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///chat.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static', 'uploads')
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf', 'txt'}
 db = SQLAlchemy(app)
 
 # --- 資料庫模型 (SQLite) ---
@@ -34,11 +39,15 @@ class ChatMessage(db.Model):
     session_id = db.Column(db.String(36), db.ForeignKey('chat_session.id'), nullable=False)
     role = db.Column(db.String(20), nullable=False) # 'user', 'assistant', 'system', 'tool'
     content = db.Column(db.Text, nullable=False)
+    image_path = db.Column(db.String(500), nullable=True)  # 圖片路徑
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # 建立資料庫
 with app.app_context():
     db.create_all()
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # --- 塔羅牌資料與內部工具 (Tool Use) ---
 def load_tarot_data():
@@ -114,7 +123,9 @@ def delete_session(session_id):
 def get_session_messages(session_id):
     messages = ChatMessage.query.filter_by(session_id=session_id).order_by(ChatMessage.created_at.asc()).all()
     return jsonify([{
-        'id': m.id, 'role': m.role, 'content': m.content, 'created_at': m.created_at.isoformat()
+        'id': m.id, 'role': m.role, 'content': m.content,
+        'image_path': m.image_path,
+        'created_at': m.created_at.isoformat()
     } for m in messages])
 
 def _generate_assistant_response(session_id, user_msg):
@@ -123,15 +134,27 @@ def _generate_assistant_response(session_id, user_msg):
     
     user_content = user_msg.content
     tool_msg = None
+    has_image = user_msg.image_path is not None
     
-    # 2. 意圖判斷與工具執行 (Tool Use)
+    # 手相分析偵測
+    is_palm_reading = has_image and ("手相" in user_content or "看手" in user_content or "掌紋" in user_content or "palm" in user_content.lower())
+    if has_image and not is_palm_reading and user_content.strip() == "":
+        # 如果只上傳了圖片但沒有文字，預設當作手相分析
+        is_palm_reading = True
+        user_content = "請幫我分析這張手相照片"
+
+    # 意圖判斷與工具執行 (Tool Use)
     if "抽牌" in user_content or "抽一張牌" in user_content:
         card_res = draw_tarot_card(1)
         tool_msg = ChatMessage(session_id=session_id, role='tool', content=f"執行抽牌工具：為你抽出了 {card_res}")
         db.session.add(tool_msg)
         db.session.commit()
-        # 整合進給 AI 的 Prompt
         user_content_for_ai = f"{user_content}\n\n[系統自動抽牌結果：{card_res}。請根據此結果進行塔羅解讀。]"
+    elif is_palm_reading:
+        tool_msg = ChatMessage(session_id=session_id, role='tool', content="執行手相分析工具：正在使用 AI 視覺分析手掌影像...")
+        db.session.add(tool_msg)
+        db.session.commit()
+        user_content_for_ai = f"{user_content}\n\n[系統已偵測到手掌影像。請以專業手相師的角度，詳細分析這張手相照片中的生命線、智慧線、感情線、事業線等掌紋特徵，並結合神祕學的觀點，提供全面的手相解讀報告。請使用 Markdown 格式排版，分段落與重點標示。]"
     else:
         user_content_for_ai = user_content
 
@@ -139,42 +162,74 @@ def _generate_assistant_response(session_id, user_msg):
     if not os.environ.get("GEMINI_API_KEY"):
         time.sleep(1.5)
         memory_str = f" [💡AI 讀取了你的記憶：{pref.content}]" if pref and pref.content else ""
-        if tool_msg:
+        if is_palm_reading:
+            return f"我收到了你的手掌影像！{memory_str} 讓我為你進行手相分析... (此為模擬回覆，請在 .env 設定 GEMINI_API_KEY 以啟用真實 AI 手相分析)", tool_msg
+        if tool_msg and not is_palm_reading:
             return f"我使用了抽牌工具，結果是「{card_res}」。{memory_str} 結合你的背景，這代表著一個新的開始。需要為你詳細解讀嗎？ (此為模擬回覆，請在 .env 設定 GEMINI_API_KEY)", tool_msg
-        return f"我已經理解你的問題：「{user_content}」。{memory_str} (此為模擬回覆，請在 .env 設定 GEMINI_API_KEY)", None
+        if has_image:
+            return f"我已收到你上傳的圖片，並理解你的問題：「{user_content}」。{memory_str} (此為模擬回覆，請在 .env 設定 GEMINI_API_KEY)", None
+        return f"我已經理解你的問題：「{user_content}」。{memory_str} (此為模擬回覆，請在 .env 設定 GEMINI_API_KEY)", tool_msg
 
-    # 串接 Gemini 2.5 Flash
+    # 串接 Gemini 2.5 Flash (強制使用)
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=memory_ctx)
         messages = ChatMessage.query.filter_by(session_id=session_id).order_by(ChatMessage.created_at.asc()).all()
         
         history_for_gemini = []
         for m in messages:
-            # 排除當下的 user 訊息與 tool 訊息，讓它們成為本次發送的內容
             if m.id == user_msg.id or (tool_msg and m.id == tool_msg.id):
                 continue
                 
             if m.role == 'tool':
-                history_for_gemini.append({'role': 'user', 'parts': [f"[系統歷史紀錄/抽牌結果] {m.content}"]})
+                history_for_gemini.append({'role': 'user', 'parts': [f"[系統歷史紀錄/工具結果] {m.content}"]})
             elif m.role == 'user':
                 history_for_gemini.append({'role': 'user', 'parts': [m.content]})
             elif m.role == 'assistant':
                 history_for_gemini.append({'role': 'model', 'parts': [m.content]})
-                
+        
+        # 構建本次發送的內容 (支援圖片)
+        parts = [user_content_for_ai]
+        if has_image:
+            img_abs_path = os.path.join(app.root_path, user_msg.image_path)
+            if os.path.exists(img_abs_path):
+                img_data = open(img_abs_path, 'rb').read()
+                ext = user_msg.image_path.rsplit('.', 1)[1].lower()
+                mime_map = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp'}
+                mime = mime_map.get(ext, 'image/jpeg')
+                parts.append({'mime_type': mime, 'data': img_data})
+        
+        model = genai.GenerativeModel('gemini-2.5-flash', system_instruction=memory_ctx)
         chat = model.start_chat(history=history_for_gemini)
-        response = chat.send_message(user_content_for_ai)
+        response = chat.send_message(parts)
         return response.text, tool_msg
     except Exception as e:
         return f"串接 AI 發生錯誤：{str(e)}", tool_msg
 
 @app.route('/api/chat/sessions/<session_id>/messages', methods=['POST'])
 def add_message(session_id):
-    data = request.json
-    user_content = data.get('content')
-    if not user_content:
-        return jsonify({'error': 'Content is required'}), 400
+    # 支援 multipart/form-data (含圖片上傳) 與 JSON
+    if request.content_type and 'multipart/form-data' in request.content_type:
+        user_content = request.form.get('content', '').strip()
+        file = request.files.get('image')
+    else:
+        data = request.json
+        user_content = data.get('content', '').strip()
+        file = None
 
-    user_msg = ChatMessage(session_id=session_id, role='user', content=user_content)
+    if not user_content and not file:
+        return jsonify({'error': 'Content or image is required'}), 400
+
+    # 處理圖片上傳
+    image_path = None
+    if file and allowed_file(file.filename):
+        filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
+        save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(save_path)
+        image_path = f"static/uploads/{filename}"
+
+    if not user_content:
+        user_content = "請幫我分析這張圖片"
+
+    user_msg = ChatMessage(session_id=session_id, role='user', content=user_content, image_path=image_path)
     db.session.add(user_msg)
     db.session.commit()
     
@@ -185,7 +240,7 @@ def add_message(session_id):
     db.session.commit()
     
     response_data = {
-        'user_message': {'role': 'user', 'content': user_content},
+        'user_message': {'role': 'user', 'content': user_content, 'image_path': image_path},
         'assistant_message': {'role': 'assistant', 'content': ai_response_text}
     }
     if tool_msg:
