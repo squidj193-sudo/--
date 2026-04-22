@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>神祕塔羅抽籤</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔮 神祕塔羅抽籤</h1>
+            <p>請在心中默想您的問題，然後選擇抽牌模式</p>
+        </header>
+
+        <div class="controls">
+            <button id="btn-single" class="btn">單張指引</button>
+            <button id="btn-three" class="btn">三張牌陣 (過去/現在/未來)</button>
+            <button id="btn-shuffle" class="btn hidden">開始洗牌</button>
+        </div>
+
+        <div id="deck-area" class="deck-area hidden">
+            <!-- 卡牌背面會在這邊產生 -->
+        </div>
+
+        <div id="result-area" class="result-area hidden">
+            <!-- 翻牌結果會在這邊產生 -->
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
