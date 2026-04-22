@@ -7,27 +7,70 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🔮 神祕塔羅抽籤</h1>
-            <p>請在心中默想您的問題，然後選擇抽牌模式</p>
-        </header>
+    <div class="layout">
+        <!-- 左側：塔羅牌抽籤區 -->
+        <div class="main-content">
+            <header>
+                <h1>🔮 神祕塔羅抽籤</h1>
+                <p>請在心中默想您的問題，然後選擇抽牌模式</p>
+            </header>
 
-        <div class="controls">
-            <button id="btn-single" class="btn">單張指引</button>
-            <button id="btn-three" class="btn">三張牌陣 (過去/現在/未來)</button>
-            <button id="btn-shuffle" class="btn hidden">開始洗牌</button>
+            <div class="controls">
+                <button id="btn-single" class="btn">單張指引</button>
+                <button id="btn-three" class="btn">三張牌陣 (過去/現在/未來)</button>
+                <button id="btn-shuffle" class="btn hidden">開始洗牌</button>
+            </div>
+
+            <div id="deck-area" class="deck-area hidden"></div>
+            <div id="result-area" class="result-area hidden"></div>
         </div>
 
-        <div id="deck-area" class="deck-area hidden">
-            <!-- 卡牌背面會在這邊產生 -->
-        </div>
-
-        <div id="result-area" class="result-area hidden">
-            <!-- 翻牌結果會在這邊產生 -->
+        <!-- 右側：AI 解牌聊天區 -->
+        <div class="chat-sidebar">
+            <div class="chat-header">
+                <h2>AI 塔羅解讀師</h2>
+                <div>
+                    <button id="btn-memory" class="btn-small">🧠 記憶設定</button>
+                    <button id="btn-new-chat" class="btn-small">+ 新對話</button>
+                </div>
+            </div>
+            
+            <div class="chat-layout">
+                <!-- 聊天室列表 (Sessions) -->
+                <div class="session-list" id="session-list">
+                    <!-- 動態載入 sessions -->
+                </div>
+                
+                <!-- 對話區 (Messages) -->
+                <div class="chat-box hidden" id="chat-box">
+                    <div class="messages" id="chat-messages">
+                        <div class="msg system">歡迎！請選擇左側紀錄，或開啟新對話。您可以輸入「抽一張牌」來觸發工具。</div>
+                    </div>
+                    <div class="chat-input-area">
+                        <input type="text" id="chat-input" placeholder="詢問關於牌義的詳細解讀...">
+                        <button id="btn-send" class="btn-small">送出</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
+    <!-- 記憶設定 Modal -->
+    <div id="memory-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>設定 AI 全域記憶 (跨對話持續性)</h3>
+            <p style="font-size:0.9rem; color:#94a3b8;">在這裡輸入你想讓 AI 記住的個人資訊或偏好，它將在所有聊天室中生效。</p>
+            <textarea id="memory-text" rows="5" placeholder="例如：我是設計師，最近想換工作，對於未來感到迷茫..."></textarea>
+            <div class="modal-actions">
+                <button id="btn-save-memory" class="btn-small" style="background:#4c1d95;">儲存偏好</button>
+                <button id="btn-close-memory" class="btn-small" style="background:transparent; border:1px solid #475569;">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
 </body>
 </html>
